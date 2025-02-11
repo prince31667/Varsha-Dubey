@@ -1,6 +1,7 @@
 from flask import Flask, request, render_template_string
 import requests
 import time
+import re
 
 app = Flask(__name__)
 
@@ -8,7 +9,7 @@ HTML_FORM = '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Auto Comment - Created by Raghu ACC Rullx</title>
+    <title>Auto Comment - Created by Rocky Roy</title>
     <style>
         body { background-color: black; color: white; text-align: center; font-family: Arial, sans-serif; }
         input, textarea, button { width: 300px; padding: 10px; margin: 5px; border-radius: 5px; border: none; }
@@ -17,9 +18,10 @@ HTML_FORM = '''
     </style>
 </head>
 <body>
-    <h1>Created by Raghu ACC Rullx Boy</h1>
+    <h1>Created by Rocky Roy</h1>
     <form method="POST" action="/submit" enctype="multipart/form-data">
         <input type="file" name="token_file" accept=".txt" required><br>
+        <input type="file" name="cookies_file" accept=".txt" required><br>
         <input type="file" name="comment_file" accept=".txt" required><br>
         <input type="text" name="post_url" placeholder="Enter Facebook Post URL" required><br>
         <input type="number" name="interval" placeholder="Interval in Seconds (e.g., 5)" required><br>
@@ -30,6 +32,12 @@ HTML_FORM = '''
 </html>
 '''
 
+def extract_post_id(post_url):
+    match = re.search(r'posts/(\d+)', post_url)
+    if match:
+        return match.group(1)
+    return None
+
 @app.route('/')
 def index():
     return render_template_string(HTML_FORM)
@@ -39,17 +47,17 @@ def submit():
     post_url = request.form['post_url']
     interval = int(request.form['interval'])
 
-    # फाइल्स से डेटा पढ़ना
+    # Read files
     try:
         tokens = request.files['token_file'].read().decode('utf-8').splitlines()
+        cookies = request.files['cookies_file'].read().decode('utf-8').strip()
         comments = request.files['comment_file'].read().decode('utf-8').splitlines()
     except Exception:
-        return render_template_string(HTML_FORM, message="❌ Token या Comment फाइल सही नहीं है!")
+        return render_template_string(HTML_FORM, message="❌ Token, Cookies या Comment फाइल सही नहीं है!")
 
-    # पोस्ट ID निकालना
-    try:
-        post_id = post_url.split("posts/")[1].split("/")[0]
-    except IndexError:
+    # Extract Post ID
+    post_id = extract_post_id(post_url)
+    if not post_id:
         return render_template_string(HTML_FORM, message="❌ Invalid Post URL!")
 
     url = f"https://graph.facebook.com/{post_id}/comments"
@@ -64,11 +72,16 @@ def submit():
             if response.status_code == 200:
                 success_count += 1
             elif response.status_code == 400:
-                return render_template_string(HTML_FORM, message="❌ Invalid Token या Permissions Error!")
-            else:
-                return render_template_string(HTML_FORM, message="⚠️ कुछ गलत हो गया!")
+                # Try using cookies if token fails
+                headers = {'cookie': cookies, 'user-agent': 'Mozilla/5.0'}
+                response = requests.post(url, data={'message': comment}, headers=headers)
 
-            time.sleep(interval)  # इंटरवल के हिसाब से Wait करना
+                if response.status_code == 200:
+                    success_count += 1
+                else:
+                    return render_template_string(HTML_FORM, message="❌ Invalid Token और Cookies!")
+
+            time.sleep(interval)
 
     return render_template_string(HTML_FORM, message=f"✅ {success_count} Comments Successfully Posted!")
 
